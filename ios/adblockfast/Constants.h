@@ -16,5 +16,20 @@
 #define PREFERENCES_FILE_EXTENSION @"plist"
 #define BLOCKER_PERMISSION_KEY @"IsBlockerAllowed"
 #define BLOCKING_STATUS_KEY @"IsBlockingOn"
+#define STATUS_LABEL @"Status: "
+#define TAB_BAR_BUTTON_COUNT 3
+#define OVERLAY_BORDER_WIDTH 1
+#define DARK_COLOR_R (44. / 255)
+#define DARK_COLOR_G (44. / 255)
+#define DARK_COLOR_B (44. / 255)
+#define OVERLAY_ALPHA .9
+#define MICRO_DURATION .125
+#define SMALL_DURATION .25
+#define MEDIUM_DURATION .5
+#define LARGE_DURATION 1
+#define MEGA_DURATION 2
+#define FRAME_WIDTH_TO_MARGIN (128. / 3)
+#define MINIMUM_FRAME_DIMENSION_TO_TAB_BAR_HEIGHT (32. / 7)
+#define MARGIN_TO_CORNER_RADIUS 1.5
 
 #endif

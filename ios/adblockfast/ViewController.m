@@ -9,12 +9,19 @@
 #import "ViewController.h"
 #import <SafariServices/SFContentBlockerManager.h>
 #import "Constants.h"
+#import "StatusLabel.h"
+#import "ActionLabel.h"
+#import "ViewButton.h"
+#import "Overlay.h"
+#import "OverlayButton.h"
 
 #define CONTENT_BLOCKER_ID (REVERSE_DOMAIN_NAME @".adblockfast.blocker")
-#define APP_OPEN_COUNT_KEY @"AppOpenCount"
 #define NOTIFICATION_REQUEST_TEXT_KEY @"NotificationRequestText"
 #define HELP_TEXT_KEY @"HelpText"
 #define ABOUT_TEXT_KEY @"AboutText"
+#define APP_OPEN_COUNT_KEY @"AppOpenCount"
+#define NOTIFICATION_REQUEST_COUNT_KEY @"NotificationRequestCount"
+#define NOTIFICATION_PERMISSION_KEY @"AreNotificationsAllowed"
 #define HEADING_FONT_NAME @"HudsonNY"
 #define BODY_FONT_NAME @"AvenirNextLTPro-Light"
 #define BODY_BOLD_FONT_NAME @"AvenirNext-Medium"
@@ -22,7 +29,6 @@
 #define UNBLOCKED_FILENAME_PREFIX @"unblocked-"
 #define VECTOR_GRAPHIC_FILE_EXTENSION @"pdf"
 #define NAME @"Adblock Fast"
-#define STATUS_LABEL @"Status: "
 #define DISALLOWED_STATUS_MESSAGE @"Waiting for permission"
 #define BLOCKED_STATUS_MESSAGE @"Blocking ads"
 #define UNBLOCKED_STATUS_MESSAGE @"Not blocking ads"
@@ -31,33 +37,21 @@
 #define UNBLOCKED_ACTION_HINT @"Tap to block"
 #define HELP_LABEL @"Help"
 #define ABOUT_LABEL @"About"
+#define DENY_LABEL @"Not now"
+#define ALLOW_LABEL @"Okay"
 #define CLOSE_LABEL @"Okay"
-#define TAB_BAR_BUTTON_COUNT 3
-#define OVERLAY_BORDER_WIDTH 1
 #define OVERLAY_LINE_SPACING 2
 #define LIGHT_COLOR_R (255. / 255)
 #define LIGHT_COLOR_G (255. / 255)
 #define LIGHT_COLOR_B (255. / 255)
-#define DARK_COLOR_R (44. / 255)
-#define DARK_COLOR_G (44. / 255)
-#define DARK_COLOR_B (44. / 255)
-#define OVERLAY_ALPHA .9
-#define MICRO_DURATION .125
-#define SMALL_DURATION .25
-#define MEDIUM_DURATION .5
-#define LARGE_DURATION 1
-#define MEGA_DURATION 2
 #define FRAME_COUNT 32
 #define FPS 24
 #define NOTIFICATION_REQUEST_FREQUENCY 3
 #define MINIMUM_IPHONE_ASPECT_RATIO 1.5
 #define IPHONE_TO_IPAD_FRAME_DIMENSION (8. / 7)
-#define FRAME_WIDTH_TO_MARGIN (128. / 3)
 #define MINIMUM_FRAME_DIMENSION_TO_NAVBAR_HEIGHT (16. / 3)
 #define MINIMUM_FRAME_DIMENSION_TO_HEADING_FONT_SIZE 16.
 #define MINIMUM_FRAME_DIMENSION_TO_BODY_FONT_SIZE (320. / 13)
-#define MINIMUM_FRAME_DIMENSION_TO_TAB_BAR_HEIGHT (32. / 7)
-#define MARGIN_TO_CORNER_RADIUS 1.5
 #define NAME_HEIGHT_TO_MARGIN 3.
 #define HEAD_INDENT_TO_FONT_SIZE (14. / 13)
 #define NORMAL_TO_SMALL_CAPS_FONT_SIZE (9. / 7)
@@ -72,44 +66,38 @@
 @property (nonatomic) CGRect onOffButtonFrame;
 @property (nonatomic) UIFont *bodyBoldFont;
 @property (nonatomic) UIFont *bodyFont;
-@property (nonatomic) UILabel *disallowedStatusLabel;
-@property (nonatomic) UILabel *blockedStatusLabel;
-@property (nonatomic) UILabel *unblockedStatusLabel;
+@property (nonatomic) StatusLabel *disallowedStatusLabel;
+@property (nonatomic) StatusLabel *blockedStatusLabel;
+@property (nonatomic) StatusLabel *unblockedStatusLabel;
 @property (nonatomic) UIButton *onOffButton;
-@property (nonatomic) UILabel *disallowedActionLabel;
-@property (nonatomic) UILabel *blockedActionLabel;
-@property (nonatomic) UILabel *unblockedActionLabel;
-@property (nonatomic) UIButton *helpButton;
-@property (nonatomic) UIButton *aboutButton;
+@property (nonatomic) ActionLabel *disallowedActionLabel;
+@property (nonatomic) ActionLabel *blockedActionLabel;
+@property (nonatomic) ActionLabel *unblockedActionLabel;
+@property (nonatomic) ViewButton *helpButton;
+@property (nonatomic) ViewButton *aboutButton;
 @property (nonatomic) UIColor *lightColor;
-@property (nonatomic) NSMutableAttributedString *helpViewText;
-@property (nonatomic) NSAttributedString *closeButtonText;
+@property (nonatomic) Overlay *notificationOverlay;
+@property (nonatomic) NSAttributedString *closeButtonLabel;
 @property (nonatomic) CGFloat closeButtonHeight;
-@property (nonatomic) CGFloat helpViewHeight;
-@property (nonatomic) UIButton *helpView;
-@property (nonatomic) NSMutableAttributedString *aboutViewText;
-@property (nonatomic) CGFloat aboutViewHeight;
-@property (nonatomic) UIButton *aboutView;
+@property (nonatomic) Overlay *helpOverlay;
+@property (nonatomic) Overlay *aboutOverlay;
+@property (nonatomic) NSUInteger magicCookie;
 @property (nonatomic) BOOL hasLaunchScreen;
 @property (nonatomic) BOOL isOnOffButtonAnimating;
 @property (nonatomic) BOOL isRulesetCompiling;
-@property (nonatomic) BOOL isHelpOpen;
-@property (nonatomic) BOOL isAboutOpen;
 
 @end
 
 @implementation ViewController
 
 + (NSString *)expandMarkdownLineBreaks:(NSString *)markdown
-{
-    return [markdown stringByReplacingOccurrencesOfString:@"<br>" withString:@"\n"];
-}
+{ return [markdown stringByReplacingOccurrencesOfString:@"<br>" withString:@"\n"]; }
 
 + (NSMutableAttributedString *)markdownToAttributedString:(NSString *)markdown
                                                  fontName:(NSString *)fontName
                                              boldFontName:(NSString *)boldFontName
                                                  fontSize:(NSUInteger)fontSize
-                                                textColor:(UIColor *)textColor
+                                                    color:(UIColor *)color
 {
     NSArray *words = [markdown componentsSeparatedByString:@" "];
     NSUInteger wordCount = words.count;
@@ -121,7 +109,7 @@
             [[NSAttributedString alloc] initWithString:i ? @" " : @""
                                             attributes:@{
                                                          NSFontAttributeName: font,
-                                                         NSForegroundColorAttributeName: textColor
+                                                         NSForegroundColorAttributeName: color
                                                          }]];
         NSString *word = words[i];
         NSArray *tokens = [word componentsSeparatedByString:@"**"];
@@ -159,7 +147,7 @@
                                                             [UIFont fontWithName:fontName
                                                                             size:smallCapsFontSize]
                                                             : font,
-                                                NSForegroundColorAttributeName: textColor
+                                                NSForegroundColorAttributeName: color
                                                 }]];
         if ([leftovers length])
             [attributedString appendAttributedString:
@@ -167,8 +155,7 @@
                     [ViewController expandMarkdownLineBreaks:leftovers]
                                                 attributes:@{
                                                              NSFontAttributeName: font,
-                                                             NSForegroundColorAttributeName:
-                                                                 textColor
+                                                             NSForegroundColorAttributeName: color
                                                              }]];
     }
 
@@ -221,47 +208,84 @@
                                               inFrame:self.onOffButtonFrame];
     [button setImage:image forState:UIControlStateNormal];
     [button setImage:image forState:UIControlStateHighlighted];
+    NSUInteger magicCookie = self.magicCookie;
     index++;
     dispatch_after(
                    dispatch_time(DISPATCH_TIME_NOW, 1. / FPS * NSEC_PER_SEC),
                    dispatch_get_main_queue(),
                    ^{
-                       NSUserDefaults *preferences = self.preferences;
+                       if (magicCookie == self.magicCookie) {
+                           NSUserDefaults *preferences = self.preferences;
 
-                       if (
-                           self.isRulesetCompiling ||
-                               isAlternateStatus ==
-                                   [preferences boolForKey:BLOCKING_STATUS_KEY] || indexForStatus
-                           ) [self animateOnOffButtonWithIndex:index];
-                       else if ([preferences boolForKey:BLOCKER_PERMISSION_KEY]) {
-                           BOOL isBlockingOn = [preferences boolForKey:BLOCKING_STATUS_KEY];
-                           [UIView animateWithDuration:SMALL_DURATION
-                                            animations:^{
-                                                self.blockedStatusLabel.alpha = isBlockingOn;
-                                                self.unblockedStatusLabel.alpha = !isBlockingOn;
-                                            }];
-                           [UIView animateWithDuration:SMALL_DURATION
-                                                 delay:SMALL_DURATION
-                                               options:UIViewAnimationOptionCurveEaseInOut
-                                            animations:^{
-                                                self.blockedActionLabel.alpha = isBlockingOn;
-                                                self.unblockedActionLabel.alpha = !isBlockingOn;
-                                            }
-                                            completion:^(BOOL finished) {
-                                                self.isOnOffButtonAnimating = NO;
-                                            }];
+                           if (
+                               self.isRulesetCompiling ||
+                                   isAlternateStatus ==
+                                       [preferences boolForKey:BLOCKING_STATUS_KEY] ||
+                                           indexForStatus
+                               ) [self animateOnOffButtonWithIndex:index];
+                           else if ([preferences boolForKey:BLOCKER_PERMISSION_KEY]) {
+                               BOOL isBlockingOn = [preferences boolForKey:BLOCKING_STATUS_KEY];
+                               [UIView animateWithDuration:SMALL_DURATION
+                                                animations:^{
+                                                    self.blockedStatusLabel.alpha = isBlockingOn;
+                                                    self.unblockedStatusLabel.alpha = !isBlockingOn;
+                                                }];
+                               [UIView animateWithDuration:SMALL_DURATION
+                                                     delay:SMALL_DURATION
+                                                   options:UIViewAnimationOptionCurveEaseInOut
+                                                animations:^{
+                                                    self.blockedActionLabel.alpha = isBlockingOn;
+                                                    self.unblockedActionLabel.alpha = !isBlockingOn;
+                                                }
+                                                completion:^(BOOL finished) {
+                                                    self.isOnOffButtonAnimating = NO;
+                                                }];
+                           }
+                           else self.isOnOffButtonAnimating = NO;
                        }
-                       else self.isOnOffButtonAnimating = NO;
                    }
                    );
 }
 
 - (void)animateOnOffButton
+{ [self animateOnOffButtonWithIndex:
+      self.hasLaunchScreen || [self.preferences boolForKey:BLOCKING_STATUS_KEY] ?
+          0 : FRAME_COUNT / 2]; }
+
+- (void)openNotificationRequest
 {
-    [self animateOnOffButtonWithIndex:
-        self.hasLaunchScreen || [self.preferences boolForKey:BLOCKING_STATUS_KEY] ?
-            0 : FRAME_COUNT / 2];
+    [self.notificationOverlay open];
+    NSUserDefaults *preferences = self.preferences;
+    NSUInteger notificationRequestCount = [preferences integerForKey:NOTIFICATION_REQUEST_COUNT_KEY];
+    [preferences setInteger:++notificationRequestCount forKey:NOTIFICATION_REQUEST_COUNT_KEY];
 }
+
+- (void)openHelp { [self.helpOverlay open]; }
+
+- (void)denyNotifications
+{
+    if (![self.preferences boolForKey:BLOCKER_PERMISSION_KEY]) [self openHelp];
+    else [self.notificationOverlay close];
+}
+
+- (void)allowNotifications
+{
+    [self.preferences setBool:YES forKey:NOTIFICATION_PERMISSION_KEY];
+    [self.notificationOverlay close];
+    UIApplication *app = [UIApplication sharedApplication];
+    if ([app respondsToSelector:@selector(registerUserNotificationSettings:)])
+        dispatch_after(
+                       dispatch_time(DISPATCH_TIME_NOW, MEDIUM_DURATION * NSEC_PER_SEC),
+                       dispatch_get_main_queue(),
+                       ^{ [app registerUserNotificationSettings:
+                              [UIUserNotificationSettings settingsForTypes:
+                                  UIUserNotificationTypeBadge | UIUserNotificationTypeSound |
+                                      UIUserNotificationTypeAlert
+                                                                categories:nil]]; }
+                       );
+}
+
+- (void)closeHelp { [self.helpOverlay close]; }
 
 - (void)onOffButtonWasTapped
 {
@@ -287,153 +311,9 @@
     }
 }
 
-- (void)openHelp
-{
-    CGFloat delay = 0;
+- (void)openAbout { [self.aboutOverlay open]; }
 
-    if (self.isAboutOpen) {
-        [self closeAbout];
-        delay = MEDIUM_DURATION;
-    }
-
-    BOOL isOpen = self.isHelpOpen;
-    UIButton *view = self.helpView;
-
-    if (!isOpen) {
-        self.isHelpOpen = YES;
-        view.alpha = 1;
-    }
-
-    CGFloat frameWidth = self.view.frame.size.width;
-    CGFloat width = frameWidth - 2 * frameWidth / FRAME_WIDTH_TO_MARGIN;
-    CGFloat height = self.helpViewHeight;
-    CGFloat heightDuringBounce = frameWidth / width * height;
-    [UIView animateWithDuration:isOpen ? MICRO_DURATION : SMALL_DURATION
-                          delay:delay
-                        options:UIViewAnimationOptionCurveEaseIn
-                     animations:^{
-                         view.transform =
-                             CGAffineTransformScale(
-                                                    view.transform,
-                                                    isOpen ? frameWidth / width : frameWidth,
-                                                    isOpen ? heightDuringBounce / height :
-                                                             heightDuringBounce
-                                                    );
-                     }
-                     completion:nil];
-    [UIView animateWithDuration:MICRO_DURATION
-                          delay:delay + (isOpen ? MICRO_DURATION : SMALL_DURATION)
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                         view.transform = CGAffineTransformScale(
-                                                                 view.transform,
-                                                                 width / frameWidth,
-                                                                 height / heightDuringBounce
-                                                                 );
-                     }
-                     completion:nil];
-}
-
-- (void)closeHelp
-{
-    CGFloat delay = SMALL_DURATION + MICRO_DURATION;
-    UIButton *view = self.helpView;
-    CGFloat frameWidth = self.view.frame.size.width;
-    [UIView animateWithDuration:delay
-                     animations:^{
-                         view.transform =
-                             CGAffineTransformScale(
-                                                    view.transform,
-                                                    1. /
-                                                        (frameWidth -
-                                                             2 * frameWidth /
-                                                                 FRAME_WIDTH_TO_MARGIN),
-                                                    1. / self.helpViewHeight
-                                                    );
-                     }];
-    dispatch_after(
-                   dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_SEC),
-                   dispatch_get_main_queue(),
-                   ^{
-                       self.helpView.alpha = 0;
-                       self.isHelpOpen = NO;
-                   }
-                   );
-}
-
-- (void)openAbout
-{
-    CGFloat delay = 0;
-
-    if (self.isHelpOpen) {
-        [self closeHelp];
-        delay = MEDIUM_DURATION;
-    }
-
-    BOOL isOpen = self.isAboutOpen;
-    UIButton *view = self.aboutView;
-
-    if (!isOpen) {
-        self.isAboutOpen = YES;
-        view.alpha = 1;
-    }
-
-    CGFloat frameWidth = self.view.frame.size.width;
-    CGFloat width = frameWidth - 2 * frameWidth / FRAME_WIDTH_TO_MARGIN;
-    CGFloat height = self.aboutViewHeight;
-    CGFloat heightDuringBounce = frameWidth / width * height;
-    [UIView animateWithDuration:isOpen ? MICRO_DURATION : SMALL_DURATION
-                          delay:delay
-                        options:UIViewAnimationOptionCurveEaseIn
-                     animations:^{
-                         view.transform =
-                             CGAffineTransformScale(
-                                                    view.transform,
-                                                    isOpen ? frameWidth / width : frameWidth,
-                                                    isOpen ? heightDuringBounce / height :
-                                                             heightDuringBounce
-                                                    );
-                     }
-                     completion:nil];
-    [UIView animateWithDuration:MICRO_DURATION
-                          delay:delay + (isOpen ? MICRO_DURATION : SMALL_DURATION)
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                         view.transform = CGAffineTransformScale(
-                                                                 view.transform,
-                                                                 width / frameWidth,
-                                                                 height / heightDuringBounce
-                                                                 );
-                     }
-                     completion:nil];
-}
-
-- (void)closeAbout
-{
-    CGFloat delay = SMALL_DURATION + MICRO_DURATION;
-    UIButton *view = self.aboutView;
-    CGFloat frameWidth = self.view.frame.size.width;
-    [UIView animateWithDuration:delay
-                     animations:^{
-                         view.transform =
-                             CGAffineTransformScale(
-                                                    view.transform,
-                                                    1. /
-                                                        (frameWidth -
-                                                             2 * frameWidth /
-                                                                 FRAME_WIDTH_TO_MARGIN),
-                                                    1. / self.aboutViewHeight
-                                                    );
-                     }];
-    dispatch_after(
-                   dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_SEC),
-                   dispatch_get_main_queue(),
-                   ^{
-                       self.aboutView.alpha = 0;
-                       self.isAboutOpen = NO;
-                   }
-                   );
-}
+- (void)closeAbout { [self.aboutOverlay close]; }
 
 - (NSUserDefaults *)preferences
 {
@@ -492,10 +372,10 @@
                                                           MINIMUM_FRAME_DIMENSION_TO_NAVBAR_HEIGHT
                                                       )];
         if (VERBOSE) _nameLabel.layer.borderWidth = 1;
-        _nameLabel.textAlignment = NSTextAlignmentCenter;
+        _nameLabel.text = NAME;
         _nameLabel.font = self.headingFont;
         _nameLabel.textColor = self.darkColor;
-        _nameLabel.text = NAME;
+        _nameLabel.textAlignment = NSTextAlignmentCenter;
         _nameLabel.alpha = 0;
     }
 
@@ -549,108 +429,42 @@
     return _bodyFont;
 }
 
-- (UILabel *)disallowedStatusLabel
+- (StatusLabel *)disallowedStatusLabel
 {
-    if (!_disallowedStatusLabel) {
-        UIColor *color = self.darkColor;
-        NSMutableAttributedString *text =
-            [[NSMutableAttributedString alloc] initWithString:STATUS_LABEL
-                                                   attributes:@{
-                                                                NSFontAttributeName:
-                                                                    self.bodyBoldFont,
-                                                                NSForegroundColorAttributeName:
-                                                                    color
-                                                                }];
-        [text appendAttributedString:
-            [[NSAttributedString alloc] initWithString:DISALLOWED_STATUS_MESSAGE
-                                            attributes:@{
-                                                         NSFontAttributeName: self.bodyFont,
-                                                         NSForegroundColorAttributeName: color
-                                                         }]];
-        CGFloat height = text.size.height;
-        _disallowedStatusLabel =
-            [[UILabel alloc] initWithFrame:CGRectMake(
-                                                      0,
-                                                      self.onOffButtonFrame.origin.y - 2 * height,
-                                                      self.view.frame.size.width,
-                                                      height
-                                                      )];
-        if (VERBOSE) _disallowedStatusLabel.layer.borderWidth = 1;
-        _disallowedStatusLabel.textAlignment = NSTextAlignmentCenter;
-        _disallowedStatusLabel.attributedText = text;
-        _disallowedStatusLabel.alpha = 0;
-    }
-
+    _disallowedStatusLabel ||
+        (_disallowedStatusLabel =
+             [[StatusLabel alloc] initWithYTerminus:self.onOffButtonFrame.origin.y
+                                              width:self.view.frame.size.width
+                                            message:DISALLOWED_STATUS_MESSAGE
+                                               font:self.bodyFont
+                                           boldFont:self.bodyBoldFont
+                                              color:self.darkColor]);
     return _disallowedStatusLabel;
 }
 
-- (UILabel *)blockedStatusLabel
+- (StatusLabel *)blockedStatusLabel
 {
-    if (!_blockedStatusLabel) {
-        UIColor *color = self.darkColor;
-        NSMutableAttributedString *text =
-            [[NSMutableAttributedString alloc] initWithString:STATUS_LABEL
-                                                   attributes:@{
-                                                                NSFontAttributeName:
-                                                                    self.bodyBoldFont,
-                                                                NSForegroundColorAttributeName:
-                                                                    color
-                                                                }];
-        [text appendAttributedString:
-            [[NSAttributedString alloc] initWithString:BLOCKED_STATUS_MESSAGE
-                                            attributes:@{
-                                                         NSFontAttributeName: self.bodyFont,
-                                                         NSForegroundColorAttributeName: color
-                                                         }]];
-        CGFloat height = text.size.height;
-        _blockedStatusLabel =
-            [[UILabel alloc] initWithFrame:CGRectMake(
-                                                      0,
-                                                      self.onOffButtonFrame.origin.y - 2 * height,
-                                                      self.view.frame.size.width,
-                                                      height
-                                                      )];
-        if (VERBOSE) _blockedStatusLabel.layer.borderWidth = 1;
-        _blockedStatusLabel.textAlignment = NSTextAlignmentCenter;
-        _blockedStatusLabel.attributedText = text;
-        _blockedStatusLabel.alpha = 0;
-    }
-
+    _blockedStatusLabel ||
+        (_blockedStatusLabel =
+             [[StatusLabel alloc] initWithYTerminus:self.onOffButtonFrame.origin.y
+                                              width:self.view.frame.size.width
+                                            message:BLOCKED_STATUS_MESSAGE
+                                               font:self.bodyFont
+                                           boldFont:self.bodyBoldFont
+                                              color:self.darkColor]);
     return _blockedStatusLabel;
 }
 
-- (UILabel *)unblockedStatusLabel
+- (StatusLabel *)unblockedStatusLabel
 {
-    if (!_unblockedStatusLabel) {
-        UIColor *color = self.darkColor;
-        NSMutableAttributedString *text =
-            [[NSMutableAttributedString alloc] initWithString:STATUS_LABEL
-                                                   attributes:@{
-                                                                NSFontAttributeName:
-                                                                    self.bodyBoldFont,
-                                                                NSForegroundColorAttributeName:
-                                                                    color
-                                                                }];
-        [text appendAttributedString:
-            [[NSAttributedString alloc] initWithString:UNBLOCKED_STATUS_MESSAGE
-                                            attributes:@{
-                                                         NSFontAttributeName: self.bodyFont,
-                                                         NSForegroundColorAttributeName: color
-                                                         }]];
-        CGFloat height = text.size.height;
-        _unblockedStatusLabel =
-            [[UILabel alloc] initWithFrame:CGRectMake(
-                                                      0,
-                                                      self.onOffButtonFrame.origin.y - 2 * height,
-                                                      self.view.frame.size.width,
-                                                      height
-                                                      )];
-        if (VERBOSE) _unblockedStatusLabel.layer.borderWidth = 1;
-        _unblockedStatusLabel.textAlignment = NSTextAlignmentCenter;
-        _unblockedStatusLabel.attributedText = text;
-        _unblockedStatusLabel.alpha = 0;
-    }
-
+    _unblockedStatusLabel ||
+        (_unblockedStatusLabel =
+             [[StatusLabel alloc] initWithYTerminus:self.onOffButtonFrame.origin.y
+                                              width:self.view.frame.size.width
+                                            message:UNBLOCKED_STATUS_MESSAGE
+                                               font:self.bodyFont
+                                           boldFont:self.bodyBoldFont
+                                              color:self.darkColor]);
     return _unblockedStatusLabel;
 }
 
@@ -667,114 +481,63 @@
     return _onOffButton;
 }
 
-- (UILabel *)disallowedActionLabel
+- (ActionLabel *)disallowedActionLabel
 {
     if (!_disallowedActionLabel) {
         CGRect onOffButtonFrame = self.onOffButtonFrame;
-        NSAttributedString *text =
-            [[NSAttributedString alloc] initWithString:DISALLOWED_ACTION_HINT
-                                            attributes:@{
-                                                         NSFontAttributeName: self.bodyFont,
-                                                         NSForegroundColorAttributeName:
-                                                             self.darkColor
-                                                         }];
-        CGFloat height = text.size.height;
         _disallowedActionLabel =
-            [[UILabel alloc] initWithFrame:CGRectMake(
-                                                      0,
-                                                      onOffButtonFrame.origin.y +
-                                                          onOffButtonFrame.size.height + height,
-                                                      self.view.frame.size.width,
-                                                      height
-                                                      )];
-        if (VERBOSE) _disallowedActionLabel.layer.borderWidth = 1;
-        _disallowedActionLabel.textAlignment = NSTextAlignmentCenter;
-        _disallowedActionLabel.attributedText = text;
-        _disallowedActionLabel.alpha = 0;
+            [[ActionLabel alloc] initWithYOrigin:onOffButtonFrame.origin.y +
+                                                     onOffButtonFrame.size.height
+                                           width:self.view.frame.size.width
+                                            hint:DISALLOWED_ACTION_HINT
+                                            font:self.bodyFont
+                                           color:self.darkColor];
     }
 
     return _disallowedActionLabel;
 }
 
-- (UILabel *)blockedActionLabel
+- (ActionLabel *)blockedActionLabel
 {
     if (!_blockedActionLabel) {
         CGRect onOffButtonFrame = self.onOffButtonFrame;
-        NSAttributedString *text =
-            [[NSAttributedString alloc] initWithString:BLOCKED_ACTION_HINT
-                                            attributes:@{
-                                                         NSFontAttributeName: self.bodyFont,
-                                                         NSForegroundColorAttributeName:
-                                                             self.darkColor
-                                                         }];
-        CGFloat height = text.size.height;
         _blockedActionLabel =
-            [[UILabel alloc] initWithFrame:CGRectMake(
-                                                      0,
-                                                      onOffButtonFrame.origin.y +
-                                                          onOffButtonFrame.size.height + height,
-                                                      self.view.frame.size.width,
-                                                      height
-                                                      )];
-        if (VERBOSE) _blockedActionLabel.layer.borderWidth = 1;
-        _blockedActionLabel.textAlignment = NSTextAlignmentCenter;
-        _blockedActionLabel.attributedText = text;
-        _blockedActionLabel.alpha = 0;
+            [[ActionLabel alloc] initWithYOrigin:onOffButtonFrame.origin.y +
+                                                     onOffButtonFrame.size.height
+                                           width:self.view.frame.size.width
+                                            hint:BLOCKED_ACTION_HINT
+                                            font:self.bodyFont
+                                           color:self.darkColor];
     }
 
     return _blockedActionLabel;
 }
 
-- (UILabel *)unblockedActionLabel
+- (ActionLabel *)unblockedActionLabel
 {
     if (!_unblockedActionLabel) {
         CGRect onOffButtonFrame = self.onOffButtonFrame;
-        NSAttributedString *text =
-            [[NSAttributedString alloc] initWithString:UNBLOCKED_ACTION_HINT
-                                            attributes:@{
-                                                         NSFontAttributeName: self.bodyFont,
-                                                         NSForegroundColorAttributeName:
-                                                             self.darkColor
-                                                         }];
-        CGFloat height = text.size.height;
         _unblockedActionLabel =
-            [[UILabel alloc] initWithFrame:CGRectMake(
-                                                      0,
-                                                      onOffButtonFrame.origin.y +
-                                                          onOffButtonFrame.size.height + height,
-                                                      self.view.frame.size.width,
-                                                      height
-                                                      )];
-        if (VERBOSE) _unblockedActionLabel.layer.borderWidth = 1;
-        _unblockedActionLabel.textAlignment = NSTextAlignmentCenter;
-        _unblockedActionLabel.attributedText = text;
-        _unblockedActionLabel.alpha = 0;
+            [[ActionLabel alloc] initWithYOrigin:onOffButtonFrame.origin.y +
+                                                     onOffButtonFrame.size.height
+                                           width:self.view.frame.size.width
+                                            hint:UNBLOCKED_ACTION_HINT
+                                            font:self.bodyFont
+                                           color:self.darkColor];
     }
 
     return _unblockedActionLabel;
 }
 
-- (UIButton *)helpButton
+- (ViewButton *)helpButton
 {
     if (!_helpButton) {
-        CGSize frameSize = self.view.frame.size;
-        CGFloat height = self.minimumFrameDimension / MINIMUM_FRAME_DIMENSION_TO_TAB_BAR_HEIGHT;
-        _helpButton =
-            [[UIButton alloc] initWithFrame:CGRectMake(0,
-                                                       frameSize.height - height,
-                                                       frameSize.width / TAB_BAR_BUTTON_COUNT,
-                                                       height
-                                                       )];
-        if (VERBOSE) _helpButton.layer.borderWidth = 1;
-        [_helpButton setAttributedTitle:
-            [[NSAttributedString alloc] initWithString:HELP_LABEL
-                                            attributes:@{
-                                                         NSFontAttributeName: self.headingFont,
-                                                         NSForegroundColorAttributeName:
-                                                             self.darkColor
-                                                         }]
-                               forState:UIControlStateNormal];
-        _helpButton.alpha = 0;
+        _helpButton = [[ViewButton alloc] initWithIndex:0
+                                                  label:HELP_LABEL
+                                                   font:self.headingFont
+                                                  color:self.darkColor
+                                              frameSize:self.view.frame.size
+                                  minimumFrameDimension:self.minimumFrameDimension];
         [_helpButton addTarget:self
                         action:@selector(openHelp)
               forControlEvents:UIControlEventTouchUpInside];
@@ -783,28 +546,15 @@
     return _helpButton;
 }
 
-- (UIButton *)aboutButton
+- (ViewButton *)aboutButton
 {
     if (!_aboutButton) {
-        CGSize frameSize = self.view.frame.size;
-        CGFloat frameWidth = frameSize.width;
-        CGFloat width = frameWidth / TAB_BAR_BUTTON_COUNT;
-        CGFloat height = self.minimumFrameDimension / MINIMUM_FRAME_DIMENSION_TO_TAB_BAR_HEIGHT;
-        _aboutButton = [[UIButton alloc] initWithFrame:CGRectMake(frameWidth - width,
-                                                                  frameSize.height - height,
-                                                                  width,
-                                                                  height
-                                                                  )];
-        if (VERBOSE) _aboutButton.layer.borderWidth = 1;
-        [_aboutButton setAttributedTitle:
-            [[NSAttributedString alloc] initWithString:ABOUT_LABEL
-                                            attributes:@{
-                                                         NSFontAttributeName: self.headingFont,
-                                                         NSForegroundColorAttributeName:
-                                                             self.darkColor
-                                                         }]
-                                forState:UIControlStateNormal];
-        _aboutButton.alpha = 0;
+        _aboutButton = [[ViewButton alloc] initWithIndex:2
+                                                   label:ABOUT_LABEL
+                                                    font:self.headingFont
+                                                   color:self.darkColor
+                                               frameSize:self.view.frame.size
+                                   minimumFrameDimension:self.minimumFrameDimension];
         [_aboutButton addTarget:self
                          action:@selector(openAbout)
                forControlEvents:UIControlEventTouchUpInside];
@@ -822,39 +572,86 @@
     return _lightColor;
 }
 
-- (NSMutableAttributedString *)helpViewText
+- (Overlay *)notificationOverlay
 {
-    if (!_helpViewText) {
-        NSUInteger fontSize =
-            self.minimumFrameDimension / MINIMUM_FRAME_DIMENSION_TO_BODY_FONT_SIZE;
-        _helpViewText =
-            [ViewController markdownToAttributedString:[self.preferences stringForKey:HELP_TEXT_KEY]
+    if (!_notificationOverlay) {
+        CGSize frameSize = self.view.frame.size;
+        CGFloat frameWidth = frameSize.width;
+        CGFloat margin = frameWidth / FRAME_WIDTH_TO_MARGIN;
+        UIColor *color = self.lightColor;
+        NSMutableAttributedString *text =
+            [ViewController markdownToAttributedString:
+                                [self.preferences stringForKey:NOTIFICATION_REQUEST_TEXT_KEY]
                                               fontName:BODY_FONT_NAME
                                           boldFontName:BODY_BOLD_FONT_NAME
-                                              fontSize:fontSize
-                                             textColor:self.lightColor];
+                                              fontSize:
+                                                  self.minimumFrameDimension /
+                                                      MINIMUM_FRAME_DIMENSION_TO_BODY_FONT_SIZE
+                                                 color:color];
         NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
         [paragraphStyle setLineSpacing:OVERLAY_LINE_SPACING];
-        [paragraphStyle setHeadIndent:HEAD_INDENT_TO_FONT_SIZE * fontSize];
-        [_helpViewText addAttribute:NSParagraphStyleAttributeName
-                              value:paragraphStyle
-                              range:NSMakeRange(0, _helpViewText.length)];
+        [text addAttribute:NSParagraphStyleAttributeName
+                     value:paragraphStyle
+                     range:NSMakeRange(0, text.length)];
+        UIFont *font = self.bodyFont;
+        NSAttributedString *denyButtonLabel =
+            [[NSAttributedString alloc] initWithString:DENY_LABEL
+                                            attributes:@{
+                                                         NSFontAttributeName: font,
+                                                         NSForegroundColorAttributeName: color
+                                                         }];
+        CGFloat denyButtonHeight = 2 * margin + denyButtonLabel.size.height;
+        CGFloat height =
+            2 * margin + [text boundingRectWithSize:CGSizeMake(frameWidth - 4 * margin, CGFLOAT_MAX)
+                                            options:NSStringDrawingUsesLineFragmentOrigin
+                                            context:nil].size.height + denyButtonHeight;
+        _notificationOverlay =
+            [[Overlay alloc] initWithHeight:height text:text frameSize:frameSize];
+        OverlayButton *denyButton = [[OverlayButton alloc] initWithIndex:0
+                                                                  height:denyButtonHeight
+                                                                   label:denyButtonLabel
+                                                                   color:color
+                                                             buttonCount:2
+                                                           overlayHeight:height
+                                                              frameWidth:frameWidth];
+        [_notificationOverlay addSubview:denyButton];
+        NSAttributedString *allowButtonLabel =
+            [[NSAttributedString alloc] initWithString:ALLOW_LABEL
+                                            attributes:@{
+                                                         NSFontAttributeName: font,
+                                                         NSForegroundColorAttributeName: color
+                                                         }];
+        OverlayButton *allowButton =
+            [[OverlayButton alloc] initWithIndex:1
+                                          height:2 * margin + allowButtonLabel.size.height
+                                           label:allowButtonLabel
+                                           color:color
+                                     buttonCount:2
+                                   overlayHeight:height
+                                      frameWidth:frameWidth];
+        [_notificationOverlay addSubview:allowButton];
+        [denyButton addGestureRecognizer:
+            [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                    action:@selector(denyNotifications)]];
+        [allowButton addGestureRecognizer:
+            [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                    action:@selector(allowNotifications)]];
     }
 
-    return _helpViewText;
+    return _notificationOverlay;
 }
 
-- (NSAttributedString *)closeButtonText
+- (NSAttributedString *)closeButtonLabel
 {
-    _closeButtonText ||
-        (_closeButtonText =
+    _closeButtonLabel ||
+        (_closeButtonLabel =
              [[NSAttributedString alloc] initWithString:CLOSE_LABEL
                                              attributes:@{
                                                           NSFontAttributeName: self.bodyFont,
                                                           NSForegroundColorAttributeName:
                                                               self.lightColor
                                                           }]);
-    return _closeButtonText;
+    return _closeButtonLabel;
 }
 
 - (CGFloat)closeButtonHeight
@@ -862,183 +659,102 @@
     _closeButtonHeight ||
         (_closeButtonHeight =
              2 * self.view.frame.size.width / FRAME_WIDTH_TO_MARGIN +
-                 self.closeButtonText.size.height);
+                 self.closeButtonLabel.size.height);
     return _closeButtonHeight;
 }
 
-- (CGFloat)helpViewHeight
+- (Overlay *)helpOverlay
 {
-    if (!_helpViewHeight) {
-        CGFloat frameWidth = self.view.frame.size.width;
-        CGFloat margin = frameWidth / FRAME_WIDTH_TO_MARGIN;
-        _helpViewHeight =
-            2 * margin +
-                [self.helpViewText boundingRectWithSize:CGSizeMake(
-                                                                   frameWidth - 4 * margin,
-                                                                   CGFLOAT_MAX
-                                                                   )
-                                                options:NSStringDrawingUsesLineFragmentOrigin
-                                                context:nil].size.height + self.closeButtonHeight;
-    }
-
-    return _helpViewHeight;
-}
-
-- (UIButton *)helpView
-{
-    if (!_helpView) {
+    if (!_helpOverlay) {
         CGSize frameSize = self.view.frame.size;
         CGFloat frameWidth = frameSize.width;
         CGFloat margin = frameWidth / FRAME_WIDTH_TO_MARGIN;
-        CGFloat width = frameWidth - 2 * margin;
-        CGFloat height = self.helpViewHeight;
-        _helpView =
-            [[UIButton alloc] initWithFrame:CGRectMake(
-                                                       (frameWidth - width) / 2,
-                                                       (frameSize.height - height) / 2,
-                                                       width,
-                                                       height
-                                                       )];
-        _helpView.layer.borderWidth = OVERLAY_BORDER_WIDTH;
-        CGFloat cornerRadius = margin / MARGIN_TO_CORNER_RADIUS;
-        _helpView.layer.cornerRadius = cornerRadius;
-        _helpView.layer.borderColor =
-            [[UIColor blackColor] colorWithAlphaComponent:OVERLAY_ALPHA].CGColor;
-        _helpView.layer.masksToBounds = YES;
-        _helpView.backgroundColor = [UIColor colorWithRed:DARK_COLOR_R / 2
-                                                    green:DARK_COLOR_G / 2
-                                                     blue:DARK_COLOR_B / 2
-                                                    alpha:OVERLAY_ALPHA];
-        _helpView.titleEdgeInsets = UIEdgeInsetsMake(margin, margin, margin, margin);
-        _helpView.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
-        _helpView.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        [_helpView setAttributedTitle:self.helpViewText forState:UIControlStateNormal];
-        _helpView.titleLabel.numberOfLines = 0;
-        NSAttributedString *closeButtonText = self.closeButtonText;
-        CGFloat closeButtonWidth = 2 * margin + closeButtonText.size.width;
-        CGFloat closeButtonHeight = self.closeButtonHeight;
-        UIButton *closeButton =
-            [[UIButton alloc] initWithFrame:CGRectMake(
-                                                       (width - closeButtonWidth) / 2,
-                                                       height - closeButtonHeight - margin,
-                                                       closeButtonWidth,
-                                                       closeButtonHeight
-                                                       )];
-        closeButton.layer.borderWidth = 1;
-        closeButton.layer.cornerRadius = cornerRadius;
-        closeButton.layer.borderColor = self.lightColor.CGColor;
-        [closeButton setAttributedTitle:closeButtonText forState:UIControlStateNormal];
-        [_helpView addSubview:closeButton];
-        _helpView.transform = CGAffineTransformScale(_helpView.transform, 1. / width, 1. / height);
-        _helpView.alpha = 0;
-        [_helpView addGestureRecognizer:
-            [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeHelp)]];
-        [closeButton addGestureRecognizer:
-            [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeHelp)]];;
-    }
-
-    return _helpView;
-}
-
-- (NSMutableAttributedString *)aboutViewText
-{
-    if (!_aboutViewText) {
         NSUInteger fontSize =
             self.minimumFrameDimension / MINIMUM_FRAME_DIMENSION_TO_BODY_FONT_SIZE;
-        _aboutViewText =
-            [ViewController markdownToAttributedString:[self.preferences stringForKey:ABOUT_TEXT_KEY]
+        UIColor *color = self.lightColor;
+        NSMutableAttributedString *text =
+            [ViewController markdownToAttributedString:[self.preferences stringForKey:HELP_TEXT_KEY]
                                               fontName:BODY_FONT_NAME
                                           boldFontName:BODY_BOLD_FONT_NAME
                                               fontSize:fontSize
-                                             textColor:self.lightColor];
+                                                 color:color];
         NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
         [paragraphStyle setLineSpacing:OVERLAY_LINE_SPACING];
         [paragraphStyle setHeadIndent:HEAD_INDENT_TO_FONT_SIZE * fontSize];
-        [_aboutViewText addAttribute:NSParagraphStyleAttributeName
-                               value:paragraphStyle
-                               range:NSMakeRange(0, _aboutViewText.length)];
+        [text addAttribute:NSParagraphStyleAttributeName
+                     value:paragraphStyle
+                     range:NSMakeRange(0, text.length)];
+        CGFloat closeButtonHeight = self.closeButtonHeight;
+        CGFloat height =
+            2 * margin + [text boundingRectWithSize:CGSizeMake(frameWidth - 4 * margin, CGFLOAT_MAX)
+                                            options:NSStringDrawingUsesLineFragmentOrigin
+                                            context:nil].size.height + closeButtonHeight;
+        _helpOverlay = [[Overlay alloc] initWithHeight:height text:text frameSize:frameSize];
+        OverlayButton *closeButton = [[OverlayButton alloc] initWithIndex:0
+                                                                   height:closeButtonHeight
+                                                                    label:self.closeButtonLabel
+                                                                    color:color
+                                                              buttonCount:1
+                                                            overlayHeight:height
+                                                               frameWidth:frameWidth];
+        [_helpOverlay addSubview:closeButton];
+        [_helpOverlay addGestureRecognizer:
+            [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeHelp)]];
+        [closeButton addGestureRecognizer:
+            [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeHelp)]];
     }
 
-    return _aboutViewText;
+    return _helpOverlay;
 }
 
-- (CGFloat)aboutViewHeight
+- (Overlay *)aboutOverlay
 {
-    if (!_aboutViewHeight) {
-        CGFloat frameWidth = self.view.frame.size.width;
-        CGFloat margin = frameWidth / FRAME_WIDTH_TO_MARGIN;
-        _aboutViewHeight =
-            2 * margin +
-                [self.aboutViewText boundingRectWithSize:CGSizeMake(
-                                                                    frameWidth - 4 * margin,
-                                                                    CGFLOAT_MAX
-                                                                    )
-                                                 options:NSStringDrawingUsesLineFragmentOrigin
-                                                 context:nil].size.height + self.closeButtonHeight;
-    }
-
-    return _aboutViewHeight;
-}
-
-- (UIButton *)aboutView
-{
-    if (!_aboutView) {
+    if (!_aboutOverlay) {
         CGSize frameSize = self.view.frame.size;
         CGFloat frameWidth = frameSize.width;
         CGFloat margin = frameWidth / FRAME_WIDTH_TO_MARGIN;
-        CGFloat width = frameWidth - 2 * margin;
-        CGFloat height = self.aboutViewHeight;
-        _aboutView =
-            [[UIButton alloc] initWithFrame:CGRectMake(
-                                                       (frameWidth - width) / 2,
-                                                       (frameSize.height - height) / 2,
-                                                       width,
-                                                       height
-                                                       )];
-        _aboutView.layer.borderWidth = OVERLAY_BORDER_WIDTH;
-        CGFloat cornerRadius = margin / MARGIN_TO_CORNER_RADIUS;
-        _aboutView.layer.cornerRadius = cornerRadius;
-        _aboutView.layer.borderColor =
-            [[UIColor blackColor] colorWithAlphaComponent:OVERLAY_ALPHA].CGColor;
-        _aboutView.layer.masksToBounds = YES;
-        _aboutView.backgroundColor = [UIColor colorWithRed:DARK_COLOR_R / 2
-                                                     green:DARK_COLOR_G / 2
-                                                      blue:DARK_COLOR_B / 2
-                                                     alpha:OVERLAY_ALPHA];
-        _aboutView.titleEdgeInsets = UIEdgeInsetsMake(margin, margin, margin, margin);
-        _aboutView.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
-        _aboutView.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        [_aboutView setAttributedTitle:self.aboutViewText forState:UIControlStateNormal];
-        _aboutView.titleLabel.numberOfLines = 0;
-        NSAttributedString *closeButtonText = self.closeButtonText;
-        CGFloat closeButtonWidth = 2 * margin + closeButtonText.size.width;
+        NSUInteger fontSize =
+            self.minimumFrameDimension / MINIMUM_FRAME_DIMENSION_TO_BODY_FONT_SIZE;
+        UIColor *color = self.lightColor;
+        NSMutableAttributedString *text =
+            [ViewController markdownToAttributedString:
+                                [self.preferences stringForKey:ABOUT_TEXT_KEY]
+                                              fontName:BODY_FONT_NAME
+                                          boldFontName:BODY_BOLD_FONT_NAME
+                                              fontSize:fontSize
+                                                 color:color];
+        NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
+        [paragraphStyle setLineSpacing:OVERLAY_LINE_SPACING];
+        [paragraphStyle setHeadIndent:HEAD_INDENT_TO_FONT_SIZE * fontSize];
+        [text addAttribute:NSParagraphStyleAttributeName
+                     value:paragraphStyle
+                     range:NSMakeRange(0, text.length)];
         CGFloat closeButtonHeight = self.closeButtonHeight;
-        UIButton *closeButton =
-            [[UIButton alloc] initWithFrame:CGRectMake(
-                                                       (width - closeButtonWidth) / 2,
-                                                       height - closeButtonHeight - margin,
-                                                       closeButtonWidth,
-                                                       closeButtonHeight
-                                                       )];
-        closeButton.layer.borderWidth = 1;
-        closeButton.layer.cornerRadius = cornerRadius;
-        closeButton.layer.borderColor = self.lightColor.CGColor;
-        [closeButton setAttributedTitle:closeButtonText forState:UIControlStateNormal];
-        [_aboutView addSubview:closeButton];
-        _aboutView.transform =
-            CGAffineTransformScale(_aboutView.transform, 1. / width, 1. / height);
-        _aboutView.alpha = 0;
-        [_aboutView addGestureRecognizer:
+        CGFloat height =
+            2 * margin + [text boundingRectWithSize:CGSizeMake(frameWidth - 4 * margin, CGFLOAT_MAX)
+                                            options:NSStringDrawingUsesLineFragmentOrigin
+                                            context:nil].size.height + closeButtonHeight;
+        _aboutOverlay = [[Overlay alloc] initWithHeight:height text:text frameSize:frameSize];
+        OverlayButton *closeButton = [[OverlayButton alloc] initWithIndex:0
+                                                                   height:closeButtonHeight
+                                                                    label:self.closeButtonLabel
+                                                                    color:color
+                                                              buttonCount:1
+                                                            overlayHeight:height
+                                                               frameWidth:frameSize.width];
+        [_aboutOverlay addSubview:closeButton];
+        [_aboutOverlay addGestureRecognizer:
             [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeAbout)]];
         [closeButton addGestureRecognizer:
             [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeAbout)]];;
     }
 
-    return _aboutView;
+    return _aboutOverlay;
 }
 
 - (void)viewDidBecomeActive
 {
+    self.magicCookie = arc4random_uniform(RAND_MAX);
     self.hasLaunchScreen = YES;
     self.isOnOffButtonAnimating = YES;
     self.isRulesetCompiling = YES;
@@ -1066,26 +782,33 @@
                          else self.unblockedActionLabel.alpha = self.unblockedStatusLabel.alpha = 1;
                      }
                      completion:nil];
+    NSUInteger appOpenCount = [preferences integerForKey:APP_OPEN_COUNT_KEY];
     dispatch_after(
                    dispatch_time(DISPATCH_TIME_NOW, MEGA_DURATION * NSEC_PER_SEC),
                    dispatch_get_main_queue(),
                    ^{
                        self.hasLaunchScreen = NO;
-                       if (!isBlockerAllowed) [self openHelp];
+                       if (
+                           ![preferences boolForKey:NOTIFICATION_PERMISSION_KEY] &&
+                               (![preferences integerForKey:NOTIFICATION_REQUEST_COUNT_KEY] ||
+                                    !fmod(appOpenCount, NOTIFICATION_REQUEST_FREQUENCY))
+                           ) [self openNotificationRequest];
+                       else if (!isBlockerAllowed) [self openHelp];
                    }
                    );
-    NSInteger appOpenCount = [preferences integerForKey:APP_OPEN_COUNT_KEY];
     [preferences setInteger:++appOpenCount forKey:APP_OPEN_COUNT_KEY];
 }
 
 - (void)viewDidResignActive
 {
-    if (self.isHelpOpen) [self closeHelp];
+    Overlay *openOverlay = [Overlay open];
+    if (openOverlay) [openOverlay close];
     self.aboutButton.alpha = self.helpButton.alpha = self.unblockedActionLabel.alpha =
         self.blockedActionLabel.alpha = self.disallowedActionLabel.alpha =
             self.unblockedStatusLabel.alpha = self.blockedStatusLabel.alpha =
-                self.disallowedStatusLabel.alpha = self.nameLabel.alpha = self.helpView.alpha =
-                    self.aboutView.alpha = 0;
+                self.disallowedStatusLabel.alpha = self.nameLabel.alpha =
+                    self.notificationOverlay.alpha = self.helpOverlay.alpha =
+                        self.aboutOverlay.alpha = 0;
     UIButton *onOffButton = self.onOffButton;
     UIImage *onOffButtonImage =
         [ViewController drawVectorGraphicWithFilename:BLOCKED_FILENAME_PREFIX @"0"
@@ -1107,8 +830,9 @@
     [self.view addSubview:self.unblockedActionLabel];
     [self.view addSubview:self.helpButton];
     [self.view addSubview:self.aboutButton];
-    [self.view addSubview:self.helpView];
-    [self.view addSubview:self.aboutView];
+    [self.view addSubview:self.notificationOverlay];
+    [self.view addSubview:self.helpOverlay];
+    [self.view addSubview:self.aboutOverlay];
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
     [notificationCenter addObserver:self
                            selector:@selector(viewDidBecomeActive)

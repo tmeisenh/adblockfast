@@ -1,4 +1,3 @@
-opera.pem# Xcode
 .DS_Store
 build/
 test-reports/
@@ -19,4 +18,5 @@ DerivedData
 UATs/results
 doxygen/
 .bundle
-
+builds/adblockfast
+opera.pem
